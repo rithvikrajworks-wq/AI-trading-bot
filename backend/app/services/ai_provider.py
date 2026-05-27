@@ -1,0 +1,65 @@
+import os
+import logging
+from typing import Dict, Any, List
+import httpx
+
+logger = logging.getLogger(__name__)
+
+
+class AIProvider:
+    """Abstract AI provider interface.
+    Implementations must provide an async `chat_completion` method returning a string response.
+    """
+
+    async def chat_completion(self, system_prompt: str, user_prompt: str, history: List[Dict[str, str]]) -> str:
+        raise NotImplementedError
+
+
+class OpenAIProvider(AIProvider):
+    """Simple OpenAI Chat Completion provider using async httpx.
+    Reads `OPENAI_API_KEY` from environment. Uses `gpt-3.5-turbo` model.
+    """
+
+    def __init__(self, api_key: str | None = None, model: str = "gpt-3.5-turbo"):
+        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+        if not self.api_key:
+            logger.warning("OPENAI_API_KEY not set; OpenAIProvider disabled.")
+            self.enabled = False
+        else:
+            self.enabled = True
+        self.model = model
+        self.endpoint = "https://api.openai.com/v1/chat/completions"
+        self.headers = (
+            {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+            if self.enabled
+            else {}
+        )
+
+    async def chat_completion(self, system_prompt: str, user_prompt: str, history: List[Dict[str, str]]) -> str:
+        if not getattr(self, "enabled", False):
+            # Graceful fallback when provider is not configured
+            return "AI provider not configured yet."
+        messages = [{"role": "system", "content": system_prompt}]
+        # Append conversation history if provided
+        for entry in history:
+            role = entry.get("role", "user")
+            content = entry.get("content", "")
+            messages.append({"role": role, "content": content})
+        # Add current user prompt
+        messages.append({"role": "user", "content": user_prompt})
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": 0.2,
+        }
+        async with httpx.AsyncClient() as client:
+            try:
+                resp = await client.post(self.endpoint, headers=self.headers, json=payload, timeout=30.0)
+                resp.raise_for_status()
+                data = resp.json()
+                answer = data["choices"][0]["message"]["content"].strip()
+                return answer
+            except Exception as e:
+                logger.error(f"OpenAI API call failed: {e}")
+                # Return a friendly fallback instead of propagating the exception
+                return "AI provider encountered an error."

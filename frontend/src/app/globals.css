@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+:root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: #080c14;
+  color: white;
+  font-family: Arial, sans-serif;
+}

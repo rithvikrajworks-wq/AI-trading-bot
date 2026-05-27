@@ -1,0 +1,263 @@
+# Project Overview – AI Stock Analyzer Platform
+
+---
+
+## 1. High‑level Vision
+The application is a **real‑time, AI‑enhanced stock analysis terminal** that feels like a professional trading platform.  It combines:
+- **FastAPI** (async) backend for data ingestion, heavy calculations, and AI chat.
+- **Next.js 14** (TypeScript) frontend for a premium, glass‑morphism UI.
+- **TradingView** charts, **Lucide** icons, and a dark‑theme design with the **Inter** font.
+- **Live market data** via polling (future WebSocket support) and a **watchlist** persisted in `localStorage`.
+
+---
+
+## 2. Tech Stack
+| Layer | Technology | Why we chose it |
+|-------|------------|-----------------|
+| **Backend** | **FastAPI** + **asyncio** | Very low overhead, native async, auto‑generated OpenAPI docs, easy to integrate with `uvicorn`.
+| | **Python** | Rich ecosystem for finance (`yfinance`, `pandas`, `ta`), AI (`openai`), and concurrency.
+| | **Caching** (TTL‑based custom layer) | Prevents repeated heavy calculations, improves latency for repeated scans.
+| | **Pydantic** + **pydantic‑settings** | Strong data validation and convenient environment‑variable handling.
+| **Frontend** | **Next.js 14** (React, SSR/SSG) | File‑system routing, built‑in API handling, excellent dev experience.
+| | **TypeScript** | Type safety for complex UI state (hooks, API contracts).
+| | **Tailwind CSS** | Utility‑first styling that lets us build the premium dark theme quickly while keeping CSS size low.
+| | **TradingView** widget | Industry‑standard charting with minimal integration effort.
+| | **Lucide icons** | Open‑source SVG icons, lightweight and theme‑aware.
+| | **LocalStorage** (watchlist) | Simple persistence for a per‑user watchlist without a DB.
+| **AI** | **OpenAI API** (ChatCompletion) | Provides the conversational assistant that can explain setups, answer questions, etc.
+| **Dev Tools** | **uvicorn** (dev server) | Hot‑reload for Python.
+| | **npm** scripts (`dev`, `build`, `start`) | Hot‑reload for the React app.
+
+---
+
+## 3. Repository Layout
+```
+Tradingbotmk1/
+├─ backend/                     # FastAPI service
+│   ├─ app/
+│   │   ├─ api/                # Routers (endpoints)
+│   │   │   ├─ endpoints/
+│   │   │   │   ├─ top_opportunities.py
+│   │   │   │   ├─ live_price.py
+│   │   │   │   ├─ chat.py
+│   │   │   │   └─ health.py
+│   │   │   └─ router.py       # Main APIRouter – includes sub‑routers
+│   │   ├─ core/               # Settings & global utilities
+│   │   │   └─ config.py       # Host, port, CORS, scanner thresholds, etc.
+│   │   ├─ services/           # Business logic (stock analysis, caching, etc.)
+│   │   │   └─ stock_service.py
+│   │   ├─ schemas/            # Pydantic request/response models
+│   │   └─ main.py              # FastAPI app creation + middleware
+│   └─ requirements.txt        # Python deps (fastapi, yfinance, pandas, ta, openai …)
+│
+├─ frontend/                    # Next.js UI
+│   ├─ src/
+│   │   ├─ components/          # Re‑usable UI pieces
+│   │   │   ├─ Dashboard.tsx
+│   │   │   ├─ AIChatPanel.tsx
+│   │   │   ├─ TopOpportunities.tsx
+│   │   │   ├─ WatchlistPanel.tsx
+│   │   │   └─ MarketWidgets.tsx
+│   │   ├─ hooks/               # Custom React hooks
+│   │   │   ├─ useLiveTicker.ts   # Polls /live-price/<ticker>
+│   │   │   └─ useWatchlist.ts    # wrapper around localStorage
+│   │   ├─ pages/               # Next.js pages (index, /chat, /watchlist …)
+│   │   ├─ utils/               # API helpers (fetchTopOpps, fetchChat, etc.)
+│   │   │   └─ api.ts
+│   │   └─ styles/              # Tailwind config, global CSS
+│   ├─ public/                  # Static assets (icons, logo, etc.)
+│   ├─ .env.local               # Front‑end env – NEXT_PUBLIC_API_URL
+│   └─ package.json
+│
+├─ .gitignore
+└─ README.md
+```
+---
+
+## 4. Backend Details
+### 4.1 `main.py`
+Creates the FastAPI app, registers middleware (CORS using `Settings.ALLOWED_ORIGINS`), and includes the global `api_router`.
+```python
+from fastapi import FastAPI
+from app.api.router import api_router
+from app.core.config import settings
+
+app = FastAPI(title=settings.PROJECT_NAME, debug=settings.DEBUG)
+app.include_router(api_router)
+```
+
+### 4.2 `config.py`
+Holds **environment configuration** that is loaded via `pydantic‑settings`.  The key values are:
+- `HOST = "0.0.0.0"` – bind to all network interfaces, enabling LAN access.
+- `PORT = 8000`
+- `ALLOWED_ORIGINS = ["*"]` – any origin may call the API (development convenience).  For production you would lock this down.
+- Scanner thresholds (`MAX_SCAN_STOCKS`, `MIN_CONFIDENCE_THRESHOLD`, `RISK_REWARD_THRESHOLD`).
+- Caching flags (`CACHE_ENABLED`, `CACHE_TTL_SECONDS`, `SCAN_CACHE_TTL`).
+- Universal stock lists for US and India markets.
+
+### 4.3 API Routers (`backend/app/api/endpoints/`)
+| Endpoint | Path | Method | Purpose |
+|----------|------|--------|---------|
+| `health.py` | `/health` | GET | Simple liveness check. |
+| `top_opportunities.py` | `/top-opportunities` | GET | Scans up to `MAX_SCAN_STOCKS` tickers, runs `StockService.analyze_ticker`, filters by `MIN_CONFIDENCE_THRESHOLD`, returns the top N setups. |
+| `live_price.py` | `/live-price/{ticker}` | GET | Returns the latest price, change, percent, timestamp (used by `useLiveTicker`). |
+| `chat.py` | `/chat` | POST | Proxy to OpenAI `ChatCompletion`; returns AI response. |
+| `market_status.py` | `/market-status` | GET | Simple market‑open/close flag used for the status strip. |
+
+All routes return **Pydantic models** (`schemas/analysis.py`, `schemas/live_price.py`, etc.) for strict typing.
+
+### 4.4 `stock_service.py` (core analysis engine)
+- Pulls daily data via **yfinance** and performs technical‑analysis calculations using **pandas‑ta** (`ta`).
+- Calculates EMA‑20/50, MACD, RSI, ATR, Bollinger Bands, support/resistance, volume‑MA20.
+- Scoring algorithm (lines 106‑111 in your snippet) assigns a 0‑100 score based on EMA and MACD trends, confidence, risk‑reward, etc.
+- Returns a **`Setup`** Pydantic model that the API serialises.
+- The service is **fully async** – it uses `httpx.AsyncClient` under the hood for any external calls (e.g., OpenAI).
+
+### 4.5 Caching Layer (`backend/app/services/cache.py`)
+- Simple in‑memory dictionary with TTL expiration.
+- Decorator **`@cached(ttl=settings.SCAN_CACHE_TTL)`** wraps expensive functions like `analyze_ticker` to avoid recomputation within the TTL window.
+- Global `cache` singleton is thread‑safe via an `asyncio.Lock`.
+
+---
+
+## 5. Frontend Details
+### 5.1 Styling & Design System
+- **Tailwind CSS** – `tailwind.config.js` defines a custom color palette (emerald/teal accent), glass‑morphism utilities (`bg-white/10`, `backdrop-blur`), and the **Inter** font family.
+- Global CSS (`globals.css`) sets `html, body { height: 100%; background: #0a0a0a; color: #e0e0e0; }` for the dark‑terminal look.
+- Components use **Lucide** SVG icons for minimal‑size, theme‑aware icons.
+
+### 5.2 Directory Structure
+| Folder | Content |
+|--------|----------|
+| `pages/` | Next.js routing – `index.tsx` (dashboard), `chat.tsx`, `watchlist.tsx`, `widgets.tsx`.
+| `components/` | Re‑usable UI pieces – each component follows the **premium glass‑style** (`bg-white/10 backdrop-blur-lg rounded-lg`).
+| `hooks/` | Custom React hooks that encapsulate data fetching and state management.
+| `utils/api.ts` | Thin wrapper around `fetch` that injects `process.env.NEXT_PUBLIC_API_URL` and does error handling.
+
+### 5.3 Key Components
+- **`Dashboard.tsx`** – Layout container that composes `TopOpportunities`, `LiveTickerStrip`, `MarketStatusStrip`, and `WatchlistPanel`.
+- **`TopOpportunities.tsx`** – Calls `/top-opportunities`, shows a **skeleton loader** while fetching, animates value changes with `framer‑motion` (smooth fade/scale). Highlights confidence, price, and signal changes via colored borders.
+- **`AIChatPanel.tsx`** – Uses `fetchChat` from `api.ts`, displays a chat UI with a message list and a textarea.
+- **`WatchlistPanel.tsx`** – Persists tickers in `localStorage`; `useWatchlist` provides add/remove functions and syncs across tabs via the `storage` event.
+- **`useLiveTicker.ts`** – Polls `/live-price/{ticker}` every 5‑10 s (configurable). Returns `price`, `change`, `pct`, `sparklineData`. Triggers a brief green/red flash when the price moves (`className={priceChange > 0 ? 'flash-green' : 'flash‑red'}`).
+- **`MarketWidgets.tsx`** – Placeholder cards for Fear & Greed, Movers, Sector Heatmap, Economic Calendar – each will eventually consume dedicated endpoints.
+
+### 5.4 Data Flow
+1. **Initial page load** – Next.js renders the page on the server (SSR) with a minimal skeleton.
+2. **Client‑side mount** – Hooks fire (`useEffect`) and call the backend via `utils/api.ts`.
+3. **Backend returns JSON** – FastAPI serialises Pydantic models, respecting CORS.
+4. **React state updates** – Components re‑render; `framer‑motion` animates changed numeric values.
+5. **Live ticker** – Hook polls every 5 s, updates the UI; later we can swap the polling logic for a WebSocket connection.
+
+---
+
+## 6. Running the Project Locally (How‑to)
+### 6.1 Prerequisites
+- **Python ≥3.10** and `pip`.
+- **Node.js ≥18** and `npm`.
+- **Git** (if cloning the repo).
+
+### 6.2 Backend
+```powershell
+cd C:\Users\Dell\Tradingbotmk1\backend
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+# start dev server (exposes on the LAN)
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+- Health check: `http://127.0.0.1:8000/health` or `http://<LAN_IP>:8000/health`.
+- API docs: `http://<LAN_IP>:8000/docs`.
+
+### 6.3 Frontend
+```powershell
+cd C:\Users\Dell\Tradingbotmk1\frontend
+npm install
+# set backend URL for the LAN (replace with your IP)
+# create .env.local if it does not exist
+# NEXT_PUBLIC_API_URL=http://<LAN_IP>:8000
+npm run dev -- --hostname 0.0.0.0 --port 3001
+```
+- Open **local**: `http://localhost:3001`.
+- Open **remote**: `http://<LAN_IP>:3001` from any device on the same network.
+
+### 6.4 Firewall
+Add inbound rules for TCP ports **8000** (backend) and **3001** (frontend) in Windows Defender Firewall (Private network).  If you plan to expose the app to the Internet, you would also configure NAT/Port‑forwarding on your router.
+
+---
+
+## 7. Future Roadmap (What’s Next)
+| Phase | Feature | Implementation notes |
+|-------|---------|----------------------|
+| **Phase 3A** | Live ticker (already polling) | Replace polling with a WebSocket endpoint (`/ws/live-price/{ticker}`). |
+| **Phase 3B** | Persistent watchlist (server‑side) | Move watchlist from `localStorage` to a tiny SQLite DB with JWT auth. |
+| **Phase 3C** | Market widgets | Implement endpoints for Fear & Greed, Movers, Heatmap, Calendar; UI cards consume them. |
+| **Phase 4** | Auth & multi‑user | Add OAuth2 (Google) + JWT, store user preferences in PostgreSQL. |
+| **Phase 5** | Production deployment | Dockerize backend & frontend, use Nginx reverse‑proxy, enable HTTPS via Let’s Encrypt. |
+
+---
+
+## 8. Known Limitations (as of now)
+- **Polling** for live prices can cause unnecessary traffic; WebSocket migration is pending.
+- **CORS** is wide open (`"*"`) for convenience; tighten before public release.
+- **Watchlist** is only client‑side; losing it clears the list on a browser reset.
+- **Error handling** on the frontend is minimal – most failures just show a generic “failed to fetch”.
+- **Scalability** – in‑memory cache works for a single instance; a distributed cache (Redis) will be required for horizontal scaling.
+
+---
+
+## 9. How the Pieces Fit Together (Diagram)
+```
++-------------------+          +--------------------+          +-------------------+
+|   Front‑end (UI)  | <--API--> |   FastAPI Backend  | <--DB--> |   yfinance /      |
+|   Next.js/TS      |          |   (async services) |          |   pandas‑ta      |
+|   (React)         |          |   - stock_service   |          |   (price data)   |
++-------------------+          +--------------------+          +-------------------+
+        ^   ^                         ^   ^
+        |   |                         |   |
+        |   +--- useLiveTicker -------+   +--- top_opportunities
+        |
+        +--- useWatchlist (localStorage)
+```
+---
+
+## 10. Quick Reference – Important Files & Their Purpose
+| File | Role |
+|------|------|
+| `backend/app/main.py` | FastAPI app bootstrap.
+| `backend/app/api/router.py` | Central APIRouter, includes sub‑routers.
+| `backend/app/api/endpoints/top_opportunities.py` | Scans tickers, returns top setups.
+| `backend/app/services/stock_service.py` | Core technical‑analysis & scoring logic (the snippet you opened).
+| `backend/app/core/config.py` | Settings (host, CORS, thresholds, universal tickers).
+| `frontend/src/utils/api.ts` | Wrapper around `fetch`, adds base URL, error handling.
+| `frontend/src/hooks/useLiveTicker.ts` | Polls `/live-price` and provides UI‑friendly data.
+| `frontend/src/components/TopOpportunities.tsx` | Displays the list with skeletons and animated updates.
+| `frontend/.env.local` | Holds `NEXT_PUBLIC_API_URL` pointing to the backend.
+| `frontend/tailwind.config.js` | Custom color palette & glass‑morphism utilities.
+
+---
+
+## 11. How to Extend the Project
+1. **Add a new backend endpoint**
+   - Define a Pydantic request/response model in `schemas/`.
+   - Write the async function in `services/`.
+   - Create a router file under `api/endpoints/` and include it in `router.py`.
+   - Document it in `README.md` and add a UI component that calls it via `api.ts`.
+
+2. **Create a new UI widget**
+   - Add a component under `src/components/` using the existing design tokens.
+   - If it needs data, add a hook under `src/hooks/` (or reuse an existing one).
+   - Import the component into the appropriate page (`pages/index.tsx` or a dedicated route).
+   - Ensure the component follows the dark‑glass style (`bg-white/10 backdrop-blur` etc.).
+
+3. **Migrate polling → WebSocket**
+   - In the backend, add a `FastAPI` WebSocket route (`/ws/live-price/{ticker}`).
+   - Broadcast price updates from a background async task.
+   - In the frontend, replace the polling logic in `useLiveTicker` with a `WebSocket` object, handling `onmessage` events.
+
+---
+
+# 📄 Plan.txt – stored at the repository root
+This file (the one you are reading) captures **everything** you need to understand the project, its stack, architecture, how to run it locally, and where to go next.
+
+Feel free to edit, add diagrams, or expand the roadmap as the product evolves.
