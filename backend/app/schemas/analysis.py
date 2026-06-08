@@ -32,6 +32,13 @@ class StockAnalysisResponse(BaseModel):
     timeframe_summary: Dict[str, Any] = Field(..., description="Aggregated trend summary per timeframe (bullish, bearish, neutral)")
     alignment_score: float = Field(..., description="Overall alignment score based on timeframe trends", examples=[78.5])
 
+    # AI opportunity details (optional)
+    investment_thesis: str | None = Field(default=None, description="Hedge-fund narrative thesis for the trade")
+    catalyst: str | None = Field(default=None, description="Specific triggers or events identified by Gemini")
+    risks_list: List[str] | None = Field(default=None, description="Concise risks listed by Gemini")
+    ranking_explanation: str | None = Field(default=None, description="Explanation for Gemini ranking")
+
+
 
 class BatchErrorDetail(BaseModel):
     ticker: str = Field(..., description="The stock ticker symbol that failed to analyze", examples=["INVALID"])

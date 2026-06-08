@@ -63,3 +63,49 @@ class OpenAIProvider(AIProvider):
                 logger.error(f"OpenAI API call failed: {e}")
                 # Return a friendly fallback instead of propagating the exception
                 return "AI provider encountered an error."
+
+
+class GeminiProvider(AIProvider):
+    """Google Gemini provider using async httpx."""
+
+    def __init__(self, api_key: str | None = None, model: str = "gemini-1.5-flash"):
+        self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
+        if not self.api_key:
+            logger.warning("GOOGLE_API_KEY not set; GeminiProvider disabled.")
+            self.enabled = False
+        else:
+            self.enabled = True
+        self.model = model
+        self.endpoint = f"https://generativelanguage.googleapis.com/v1/models/{self.model}:generateContent"
+
+    async def chat_completion(self, system_prompt: str, user_prompt: str, history: List[Dict[str, str]]) -> str:
+        if not getattr(self, "enabled", False):
+            return "AI provider not configured yet."
+        
+        contents = [{"role": "user", "parts": [{"text": system_prompt + "\n" + user_prompt}]}]
+        payload = {"contents": contents}
+        params = {"key": self.api_key}
+
+        async with httpx.AsyncClient() as client:
+            try:
+                resp = await client.post(self.endpoint, params=params, json=payload, timeout=30.0)
+                resp.raise_for_status()
+                data = resp.json()
+                answer = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                return answer
+            except Exception as e:
+                logger.error(f"Gemini API call failed: {e}")
+                return "AI provider encountered an error."
+
+
+def get_ai_provider() -> AIProvider:
+    """Factory to select AI provider based on settings."""
+    try:
+        from ..settings import settings
+    except Exception:
+        from settings import settings
+    provider_name = getattr(settings, "AI_PROVIDER", "openai").lower()
+    model = getattr(settings, "AI_MODEL", "gpt-3.5-turbo")
+    if provider_name == "gemini":
+        return GeminiProvider(api_key=settings.GEMINI_API_KEY, model=model)
+    return OpenAIProvider(api_key=settings.OPENAI_API_KEY, model=model)

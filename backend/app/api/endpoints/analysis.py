@@ -2,51 +2,126 @@ import asyncio
 import logging
 import time
 from fastapi import APIRouter, Query, HTTPException, Depends
+
+# Response models
+from app.agents.analysis_response import AnalysisResponse
 from app.schemas.analysis import (
-    StockAnalysisResponse, 
-    BatchAnalysisRequest, 
-    BatchAnalysisResponse, 
-    BatchErrorDetail
+    BatchAnalysisRequest,
+    BatchAnalysisResponse,
+    BatchErrorDetail,
 )
+
+# Services and agents
 from app.services.stock_service import StockService
+from app.agents.analysis_agent import AnalysisAgent
 
-# Setup logger for the endpoint performance logging
+# Utilities
+from app.utils.cache import cache
+from app.core.config import settings
+
 logger = logging.getLogger("app.api.endpoints.analysis")
-
 router = APIRouter()
 
 @router.get(
     "/analyze-stock",
-    response_model=StockAnalysisResponse,
+    response_model=AnalysisResponse,
     summary="Analyze Stock Ticker",
     description=(
-        "Fetch historical stock data using yfinance, compute technical indicators "
-        "(RSI, MACD, EMA 20, EMA 50) using pandas-ta, and return a structured analysis "
-        "consisting of a recommendation, confidence score, pros, and cons."
-    )
+        "Fetch raw market data via StockService, then generate an AI‑native "
+        "analysis using the AnalysisAgent. The response follows the "
+        "AnalysisResponse schema."
+    ),
 )
 async def analyze_stock(
     ticker: str = Query(
-        ..., 
-        min_length=1, 
-        max_length=10, 
-        description="The stock ticker symbol (e.g. NVDA, AAPL, MSFT)"
+        ..., min_length=1, max_length=10, description="The stock ticker symbol (e.g. NVDA, AAPL, MSFT)"
     ),
-    stock_service: StockService = Depends()
+    stock_service: StockService = Depends(),
 ):
+    """Endpoint that returns AI‑generated analysis for a single ticker.
+
+    Steps:
+    1️⃣ Retrieve raw market data via ``stock_service.get_raw_analysis_data``.
+    2️⃣ Check AI analysis cache (key ``analysis:{ticker}``).
+    3️⃣ If cached, return cached ``AnalysisResponse``.
+    4️⃣ Otherwise invoke ``AnalysisAgent`` to produce a JSON‑structured analysis.
+    5️⃣ Cache the validated response and return it.
+    """
+    ticker_clean = ticker.strip().upper()
+    cache_key = f"analysis:{ticker_clean}"
     try:
-        analysis_result = await stock_service.analyze_ticker(ticker)
-        return analysis_result
+        cached = await cache.get(cache_key)
+        if cached:
+            logger.info(
+                "Cache hit for analysis",
+                extra={"ticker": ticker_clean, "cache_hit": True},
+            )
+            return AnalysisResponse(**cached)
+    except Exception as e:
+        logger.error("Cache retrieval error for %s: %s", ticker_clean, e)
+
+    # Fetch raw numeric data (no deterministic logic)
+    try:
+        raw_data = await stock_service.get_raw_analysis_data(ticker_clean)
     except ValueError as ve:
-        # Expected error from yfinance/data issues: return 400 Bad Request
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
-        # Unexpected errors: return 500 Internal Server Error
-        raise HTTPException(
-            status_code=500, 
-            detail=f"An error occurred while performing stock analysis: {str(e)}"
+        raise HTTPException(status_code=500, detail=f"Error fetching raw data: {e}")
+
+    # Run AI analysis with timing and retry visibility handled inside the agent
+    start_ms = int(time.time() * 1000)
+    try:
+        agent = AnalysisAgent()
+        analysis = await agent.analyze(ticker=ticker_clean, market_data=raw_data)
+    except Exception as e:
+        duration_ms = int(time.time() * 1000) - start_ms
+        logger.error(
+            "AnalysisAgent failed for %s after %d ms: %s",
+            ticker_clean,
+            duration_ms,
+            e,
+        )
+        # Fallback safe response – minimal but schema‑compatible
+        fallback = AnalysisResponse(
+            signal="HOLD",
+            confidence=50,
+            risk_level="Unknown",
+            summary="AI analysis unavailable – returning default hold recommendation.",
+            technical_analysis="Service unavailable.",
+            entry_strategy="Wait for server to recover.",
+            exit_strategy="N/A",
+            key_levels=[],
+            warnings=["AI service failure – using fallback response"],
+            holding_period="N/A",
+            setup_quality="low",
+            market_bias="neutral",
+            catalyst_summary="None"
+        )
+        return fallback
+    finally:
+        duration_ms = int(time.time() * 1000) - start_ms
+        logger.info(
+            "AnalysisAgent completed",
+            extra={
+                "ticker": ticker_clean,
+                "duration_ms": duration_ms,
+                "cache_hit": False,
+            },
         )
 
+    # Cache the successful response
+    try:
+        await cache.set(
+            cache_key,
+            analysis.model_dump(),
+            ttl=settings.ANALYSIS_CACHE_TTL,
+        )
+    except Exception as e:
+        logger.error("Failed to cache analysis for %s: %s", ticker_clean, e)
+
+    return analysis
+
+# Batch endpoint (still deterministic for now)
 @router.post(
     "/analyze-stocks",
     response_model=BatchAnalysisResponse,
@@ -54,81 +129,50 @@ async def analyze_stock(
     description=(
         "Fetch data and perform technical analysis on multiple stock tickers concurrently. "
         "Returns lists of successful analyses and failures, preserving the original order of tickers."
-    )
+    ),
 )
 async def analyze_stocks(
     request: BatchAnalysisRequest,
-    stock_service: StockService = Depends()
+    stock_service: StockService = Depends(),
 ):
     # Normalize inputs to uppercase and strip whitespaces
     raw_tickers = [t.strip().upper() for t in request.tickers if t.strip()]
-
     if not raw_tickers:
         raise HTTPException(status_code=400, detail="Tickers list cannot be empty.")
-
-    # Enforce request cap of 10 items on the raw input (before or after deduplication)
-    # The requirement says "cap requests at maximum 10 tickers"
     if len(request.tickers) > 10:
         raise HTTPException(
-            status_code=400,
-            detail="Batch request exceeds maximum allowed limit of 10 tickers."
+            status_code=400, detail="Batch request exceeds maximum allowed limit of 10 tickers."
         )
-
-    # Deduplicate while preserving insertion order using dict.fromkeys
+    # Deduplicate while preserving insertion order
     tickers = list(dict.fromkeys(raw_tickers))
 
-    # Helper function to track per-ticker analysis execution duration
     async def analyze_single_with_timing(ticker: str):
         ticker_start = time.perf_counter()
         try:
             result = await stock_service.analyze_ticker(ticker)
             duration = time.perf_counter() - ticker_start
             logger.info(f"Analyzed ticker '{ticker}' successfully in {duration:.4f}s")
-            return {
-                "status": "success",
-                "ticker": ticker,
-                "data": result
-            }
+            return {"status": "success", "ticker": ticker, "data": result}
         except Exception as e:
             duration = time.perf_counter() - ticker_start
             error_msg = str(e)
             logger.error(f"Failed to analyze ticker '{ticker}' after {duration:.4f}s: {error_msg}")
-            return {
-                "status": "error",
-                "ticker": ticker,
-                "error": error_msg
-            }
+            return {"status": "error", "ticker": ticker, "error": error_msg}
 
-    # Start total batch execution timing
     batch_start = time.perf_counter()
-
-    # Create and schedule concurrent tasks
     tasks = [analyze_single_with_timing(ticker) for ticker in tickers]
-    
-    # asyncio.gather runs all tasks concurrently and preserves the order of results
     task_results = await asyncio.gather(*tasks, return_exceptions=True)
-
     total_duration = time.perf_counter() - batch_start
     logger.info(f"Batch analysis of {len(tickers)} tickers completed in {total_duration:.4f}s")
 
     results_list = []
     errors_list = []
-
-    # Distribute task results into successful and failed arrays preserving order
     for res in task_results:
-        # Check if gather caught an unhandled exception outside our timing wrapper
         if isinstance(res, Exception):
-            # This shouldn't normally happen since analyze_single_with_timing handles exceptions internally
-            logger.critical(f"Unhandled gather exception: {str(res)}")
+            logger.critical(f"Unhandled gather exception: {res}")
             continue
-
         if res["status"] == "success":
             results_list.append(res["data"])
         else:
-            errors_list.append(
-                BatchErrorDetail(ticker=res["ticker"], error=res["error"])
-            )
-
+            errors_list.append(BatchErrorDetail(ticker=res["ticker"], error=res["error"]))
     return BatchAnalysisResponse(results=results_list, errors=errors_list)
-
-

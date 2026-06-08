@@ -1,0 +1,19 @@
+You are an expert portfolio manager. Rank the following stock opportunities from most promising to least promising. Do not use any simple sorting rules like confidence score or risk level only; instead, evaluate the qualitative investment thesis, catalysts, and risk-reward profile of each setup.
+
+Input Opportunities (JSON format):
+{opportunities_json}
+
+Output ONLY a JSON object containing a list under the key "items" matching this schema:
+{
+  "items": [
+    {
+      "ticker": "TICKER",
+      "investment_thesis": "Thesis details",
+      "catalyst": "Upcoming catalyst",
+      "risks": "Risks details",
+      "confidence": 85,
+      "ranking_explanation": "Why this opportunity is ranked at this position"
+    }
+  ]
+}
+

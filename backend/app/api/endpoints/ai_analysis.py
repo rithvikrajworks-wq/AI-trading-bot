@@ -3,7 +3,7 @@ from app.schemas.ai_analysis import AIAnalysisResponse
 from app.services.stock_service import StockService
 from app.services.ai_provider import OpenAIProvider
 
-router = APIROuter()
+router = APIRouter()
 
 stock_service = StockService()
 ai_provider = OpenAIProvider()

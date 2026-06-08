@@ -1,10 +1,24 @@
+# backend/app/main.py
+
+"""FastAPI application entry point.
+Includes CORS, logging, auth router, and startup DB migrations.
+"""
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
-from app.core.config import settings
-from app.api.router import api_router
+import aiosqlite
+import logging
 
-# Initialize the FastAPI Application
+from app.settings import settings
+from app.api.router import api_router
+from app.auth.auth import router as auth_router
+
+# Configure logger
+logger = logging.getLogger("tradingbot")
+logger.setLevel(logging.INFO)
+
+# Initialize FastAPI app
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description=(
@@ -15,13 +29,11 @@ app = FastAPI(
     debug=settings.DEBUG,
 )
 
-# Configure CORS Middleware
-# This is crucial so that the future Next.js frontend running on a different port (e.g. 3000) can make API calls.
+# CORS configuration
 if settings.ALLOWED_ORIGINS:
     origins = settings.ALLOWED_ORIGINS
     if isinstance(origins, str):
         origins = [origins]
-    
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
@@ -30,12 +42,69 @@ if settings.ALLOWED_ORIGINS:
         allow_headers=["*"],
     )
 
-# Register the main API router
+# Register routers
 app.include_router(api_router)
+app.include_router(auth_router)
 
+# Startup event – create tables if they don't exist
+@app.on_event("startup")
+async def create_tables() -> None:
+    async with aiosqlite.connect(settings.MEMORY_DB_PATH) as db:
+        await db.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                email TEXT UNIQUE NOT NULL,
+                hashed_password TEXT NOT NULL,
+                created_at REAL NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS episodic_memory (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                timestamp REAL NOT NULL,
+                metadata TEXT,
+                embedding BLOB
+            );
+            CREATE TABLE IF NOT EXISTS memory_summaries (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                created_at REAL NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS user_settings (
+                user_id TEXT PRIMARY KEY,
+                memory_enabled INTEGER DEFAULT 1,
+                max_memories INTEGER DEFAULT 1000,
+                ai_cost_saver INTEGER DEFAULT 1
+            );
+            CREATE TABLE IF NOT EXISTS user_profiles (
+                user_id TEXT PRIMARY KEY,
+                risk_tolerance TEXT,
+                strategy_style TEXT,
+                preferred_sectors TEXT,
+                favorite_tickers TEXT,
+                experience_level TEXT,
+                updated_at REAL
+            );
+            CREATE TABLE IF NOT EXISTS ai_usage (
+                id TEXT PRIMARY KEY,
+                user_id TEXT,
+                endpoint TEXT,
+                provider TEXT,
+                tokens INTEGER,
+                latency REAL,
+                success INTEGER,
+                created_at REAL
+            );
+            """
+        )
+        await db.commit()
+    logger.info("Database tables ensured at startup")
+
+# Root redirect to /docs
 @app.get("/", include_in_schema=False)
 async def root_redirect():
-    """
-    Redirect the root index URL to FastAPI's interactive /docs.
-    """
+    """Redirect the root URL to FastAPI's interactive docs."""
     return RedirectResponse(url="/docs")

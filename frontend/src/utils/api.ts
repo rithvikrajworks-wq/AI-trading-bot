@@ -95,6 +95,45 @@ export async function fetchStockAnalysis(ticker: string): Promise<StockAnalysisR
 }
 
 /**
+ * Fetch AI-powered analysis for a ticker.
+ * GET /ai-analysis/{ticker}
+ */
+export interface AIAnalysisResponse {
+  ticker: string;
+  analysis: string; // Natural language analysis from LLM
+  confidence: number;
+}
+
+export async function fetchAIAnalysis(ticker: string): Promise<AIAnalysisResponse> {
+  const cleanTicker = ticker.trim().toUpperCase();
+  if (!cleanTicker) {
+    throw new Error("Ticker symbol cannot be empty");
+  }
+
+  const response = await fetch(`${API_BASE_URL}/ai-analysis/${encodeURIComponent(cleanTicker)}`, {
+    method: "GET",
+    headers: {
+      "Accept": "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    let errorMessage = `Failed to fetch AI analysis for '${cleanTicker}'`;
+    try {
+      const errBody = await response.json();
+      if (errBody && errBody.detail) {
+        errorMessage = errBody.detail;
+      }
+    } catch {
+      // ignore parsing error
+    }
+    throw new Error(errorMessage);
+  }
+
+  return response.json();
+}
+
+/**
  * Fetch technical analysis for multiple stock tickers concurrently.
  * POST /analyze-stocks
  */
