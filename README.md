@@ -39,4 +39,3 @@ Tradingbotmk1/
 
 ---
 
-*Made with ❤️ by the Antigravity team.*
