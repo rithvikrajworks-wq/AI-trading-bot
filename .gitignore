@@ -39,3 +39,12 @@ frontend/.env
 .env.development
 .env.production
 memory.db
+
+# Reports and Scratch
+backend/docs/*_AUDIT.md
+backend/docs/*_REPORT.md
+backend/docs/*_TRACE.md
+backend/docs/*_DUMP.md
+backend/docs/RUNTIME_PIPELINE_PROOF.md
+scratch/
+
