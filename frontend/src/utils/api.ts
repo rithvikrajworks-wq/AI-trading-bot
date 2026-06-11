@@ -23,6 +23,60 @@ export interface BatchAnalysisResponse {
 }
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
+// Helper to get the auth headers
+function getAuthHeaders(): HeadersInit {
+  const headers: Record<string, string> = {
+    "Accept": "application/json",
+  };
+  if (typeof window !== "undefined") {
+    const token = localStorage.getItem("access_token");
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+  }
+  return headers;
+}
+
+// Helper to handle response status checks (specifically 401/403)
+function checkResponseStatus(response: Response) {
+  if (response.status === 401 || response.status === 403) {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("access_token");
+      window.dispatchEvent(new Event("auth-failed"));
+    }
+  }
+}
+
+// Login function using OAuth2 Password Flow (Form Data)
+export async function loginUser(username: string, password: string): Promise<string> {
+  const params = new URLSearchParams();
+  params.append("username", username);
+  params.append("password", password);
+
+  const response = await fetch(`${API_BASE_URL}/auth/login`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "Accept": "application/json",
+    },
+    body: params,
+  });
+
+  if (!response.ok) {
+    let errorMessage = "Login failed";
+    try {
+      const errBody = await response.json();
+      if (errBody && errBody.detail) {
+        errorMessage = errBody.detail;
+      }
+    } catch {}
+    throw new Error(errorMessage);
+  }
+
+  const data = await response.json();
+  return data.access_token;
+}
+
 // New type for live price response
 export interface LivePriceResponse {
   ticker: string;
@@ -43,10 +97,9 @@ export async function fetchLivePrice(ticker: string): Promise<LivePriceResponse>
   }
   const response = await fetch(`${API_BASE_URL}/live-price/${encodeURIComponent(cleanTicker)}`, {
     method: "GET",
-    headers: {
-      "Accept": "application/json",
-    },
+    headers: getAuthHeaders(),
   });
+  checkResponseStatus(response);
   if (!response.ok) {
     let errorMessage = `Failed to fetch live price for '${cleanTicker}'`;
     try {
@@ -73,10 +126,9 @@ export async function fetchStockAnalysis(ticker: string): Promise<StockAnalysisR
 
   const response = await fetch(`${API_BASE_URL}/analyze-stock?ticker=${encodeURIComponent(cleanTicker)}`, {
     method: "GET",
-    headers: {
-      "Accept": "application/json",
-    },
+    headers: getAuthHeaders(),
   });
+  checkResponseStatus(response);
 
   if (!response.ok) {
     let errorMessage = `Failed to analyze ticker '${cleanTicker}'`;
@@ -112,10 +164,9 @@ export async function fetchAIAnalysis(ticker: string): Promise<AIAnalysisRespons
 
   const response = await fetch(`${API_BASE_URL}/ai-analysis/${encodeURIComponent(cleanTicker)}`, {
     method: "GET",
-    headers: {
-      "Accept": "application/json",
-    },
+    headers: getAuthHeaders(),
   });
+  checkResponseStatus(response);
 
   if (!response.ok) {
     let errorMessage = `Failed to fetch AI analysis for '${cleanTicker}'`;
@@ -150,14 +201,16 @@ export async function fetchBatchAnalysis(tickers: string[]): Promise<BatchAnalys
     throw new Error("Batch requests are capped at 10 tickers maximum");
   }
 
+  const headers = getAuthHeaders();
   const response = await fetch(`${API_BASE_URL}/analyze-stocks`, {
     method: "POST",
     headers: {
+      ...headers,
       "Content-Type": "application/json",
-      "Accept": "application/json",
     },
     body: JSON.stringify({ tickers: cleanTickers }),
   });
+  checkResponseStatus(response);
 
   if (!response.ok) {
     let errorMessage = "Failed to run batch stock analysis";
@@ -181,10 +234,9 @@ export async function fetchBatchAnalysis(tickers: string[]): Promise<BatchAnalys
 export async function fetchTopOpportunities(): Promise<StockAnalysisResponse[]> {
   const response = await fetch(`${API_BASE_URL}/top-opportunities`, {
     method: "GET",
-    headers: {
-      "Accept": "application/json",
-    },
+    headers: getAuthHeaders(),
   });
+  checkResponseStatus(response);
 
   if (!response.ok) {
     let errorMessage = `Failed to fetch top opportunities`;
@@ -212,10 +264,9 @@ export interface MarketStatus {
 export async function fetchMarketStatus(): Promise<MarketStatus> {
   const response = await fetch(`${API_BASE_URL}/market-status`, {
     method: "GET",
-    headers: {
-      "Accept": "application/json",
-    },
+    headers: getAuthHeaders(),
   });
+  checkResponseStatus(response);
 
   if (!response.ok) {
     let errorMessage = `Failed to fetch market status`;
@@ -253,14 +304,16 @@ export interface ChatResponse {
  * POST /chat
  */
 export async function fetchChat(request: ChatRequest): Promise<ChatResponse> {
+  const headers = getAuthHeaders();
   const response = await fetch(`${API_BASE_URL}/chat`, {
     method: "POST",
     headers: {
+      ...headers,
       "Content-Type": "application/json",
-      "Accept": "application/json",
     },
     body: JSON.stringify(request),
   });
+  checkResponseStatus(response);
   if (!response.ok) {
     let errorMessage = `Chat request failed`;
     try {

@@ -12,8 +12,9 @@ Output ONLY a JSON object containing a list under the key "items" matching this 
       "catalyst": "Upcoming catalyst",
       "risks": "Risks details",
       "confidence": 85,
-      "ranking_explanation": "Why this opportunity is ranked at this position"
+      "ranking_explanation": "Why this opportunity is ranked at this position",
+      "rank": 0,
+      "why_ranked_here": "..."
     }
   ]
 }
-

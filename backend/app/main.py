@@ -3,6 +3,13 @@
 """FastAPI application entry point.
 Includes CORS, logging, auth router, and startup DB migrations.
 """
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
+
+
+
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -101,6 +108,25 @@ async def create_tables() -> None:
             """
         )
         await db.commit()
+        
+        # Seed the Rithvik user account if it doesn't exist
+        from app.auth.password_utils import hash_password
+        import uuid
+        import time
+        email = "Rithvik"
+        cursor = await db.execute("SELECT id FROM users WHERE email = ?", (email,))
+        row = await cursor.fetchone()
+        await cursor.close()
+        if not row:
+            user_id = uuid.uuid4().hex
+            hashed_password = hash_password("lets do this!!!")
+            created_at = time.time()
+            await db.execute(
+                "INSERT INTO users (id, email, hashed_password, created_at) VALUES (?, ?, ?, ?)",
+                (user_id, email, hashed_password, created_at)
+            )
+            await db.commit()
+            logger.info("Successfully seeded user: Rithvik")
     logger.info("Database tables ensured at startup")
 
 # Root redirect to /docs

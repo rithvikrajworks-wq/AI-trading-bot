@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, conint
 class AnalysisResponse(BaseModel):
     signal: Literal["BUY", "SELL", "HOLD"] = Field(..., description="Trading signal")
     confidence: conint(ge=0, le=100) = Field(..., description="Confidence score 0-100")
+    breakout_probability: conint(ge=0, le=100) = Field(..., description="Estimated breakout probability as a percentage")
     risk_level: Literal["Low", "Medium", "High", "Unknown"] = Field(..., description="Risk assessment")
     summary: str = Field(..., description="Brief high‑level summary")
     company_overview: str = Field(..., description="Company overview and market relevance")

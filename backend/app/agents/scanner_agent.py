@@ -56,12 +56,9 @@ class ScannerAgent(BaseAgent):
                 scanner_opp = self.validate_response(json_part)
                 
                 # 3. Merge opportunity narratives into the analysis response
-                analysis["investment_thesis"] = scanner_opp.opportunity
-                analysis["catalyst"] = scanner_opp.catalyst
-                analysis["risks_list"] = [scanner_opp.risks]
-                analysis["pros"] = [scanner_opp.opportunity, scanner_opp.why_interesting]
-                analysis["cons"] = [scanner_opp.risks]
-                
+                analysis["bull_case_probability"] = scanner_opp.bull_case_probability
+                analysis["base_case_probability"] = scanner_opp.base_case_probability
+                analysis["bear_case_probability"] = scanner_opp.bear_case_probability
                 return analysis
             except Exception as e:
                 self.logger.warning("Attempt %d failed for ticker %s: %s", attempt + 1, ticker, e)

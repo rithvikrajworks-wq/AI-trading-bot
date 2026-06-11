@@ -1,19 +1,69 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import StockSearch from "./StockSearch";
 import AnalysisCard from "./AnalysisCard";
 import TradingViewChart from "./TradingViewChart";
 import TopOpportunities from "./TopOpportunities";
 import AIChatPanel from "./AIChatPanel";
-import { fetchStockAnalysis, StockAnalysisResponse } from "../utils/api";
+import { fetchStockAnalysis, StockAnalysisResponse, loginUser } from "../utils/api";
 import { useLiveTicker } from "../hooks/useLiveTicker";
 import WatchlistPanel from "./WatchlistPanel";
 
 export default function Dashboard() {
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [tokenChecked, setTokenChecked] = useState<boolean>(false);
+  
+  // Login credentials state
+  const [username, setUsername] = useState<string>("");
+  const [password, setPassword] = useState<string>("");
+  const [loginError, setLoginError] = useState<string>("");
+  const [loginLoading, setLoginLoading] = useState<boolean>(false);
+
   const [analysis, setAnalysis] = useState<StockAnalysisResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>("");
+
+  useEffect(() => {
+    const checkToken = () => {
+      const token = localStorage.getItem("access_token");
+      setIsAuthenticated(!!token);
+      setTokenChecked(true);
+    };
+
+    checkToken();
+
+    // Listen to unauthorized responses from api utils
+    const handleAuthFailed = () => {
+      setIsAuthenticated(false);
+    };
+
+    window.addEventListener("auth-failed", handleAuthFailed);
+    return () => {
+      window.removeEventListener("auth-failed", handleAuthFailed);
+    };
+  }, []);
+
+  const handleLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginLoading(true);
+    setLoginError("");
+    try {
+      const token = await loginUser(username, password);
+      localStorage.setItem("access_token", token);
+      setIsAuthenticated(true);
+    } catch (err: any) {
+      setLoginError(err.message || "Invalid credentials");
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("access_token");
+    setIsAuthenticated(false);
+    setAnalysis(null);
+  };
 
   const handleSearch = async (ticker: string) => {
     setLoading(true);
@@ -30,12 +80,75 @@ export default function Dashboard() {
     }
   };
 
-
   const ticker = analysis?.ticker || "";
   const { data: liveData, loading: liveLoading, error: liveError } = useLiveTicker(ticker);
 
+  if (!tokenChecked) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center">
+        <p className="text-slate-400">Loading platform...</p>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <main className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
+        <div className="w-full max-w-md bg-slate-900 border border-slate-800 p-8 rounded-xl shadow-2xl">
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-extrabold text-white tracking-tight">AI Trading Bot</h1>
+            <p className="text-slate-400 text-sm mt-2">Sign in to access real-time analysis & scanner</p>
+          </div>
+          <form onSubmit={handleLoginSubmit} className="space-y-6">
+            <div>
+              <label htmlFor="username" className="block text-sm font-medium text-slate-300">Username</label>
+              <input
+                id="username"
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Rithvik"
+                required
+                className="mt-1 block w-full rounded-md bg-slate-950 border border-slate-800 text-slate-100 px-3 py-2 shadow-inner focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+            <div>
+              <label htmlFor="password" className="block text-sm font-medium text-slate-300">Password</label>
+              <input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Password"
+                required
+                className="mt-1 block w-full rounded-md bg-slate-950 border border-slate-800 text-slate-100 px-3 py-2 shadow-inner focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+            {loginError && <p className="text-rose-500 text-sm">{loginError}</p>}
+            <button
+              type="submit"
+              disabled={loginLoading}
+              className="w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 disabled:opacity-50"
+            >
+              {loginLoading ? "Signing In..." : "Sign In"}
+            </button>
+          </form>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 p-6 flex flex-col gap-6">
+      <header className="flex justify-between items-center max-w-5xl mx-auto w-full border-b border-slate-900 pb-4">
+        <h1 className="text-xl font-bold tracking-wider text-slate-100">AI TRADING COPILOT</h1>
+        <button
+          onClick={handleLogout}
+          className="px-3 py-1.5 text-sm font-medium text-slate-300 border border-slate-800 rounded-md hover:bg-slate-900 hover:text-white transition-colors"
+        >
+          Logout
+        </button>
+      </header>
       <section className="max-w-2xl mx-auto w-full">
         <StockSearch onSearch={handleSearch} isLoading={loading} />
           <WatchlistPanel onSelect={handleSearch} />

@@ -3,18 +3,17 @@ import json
 from typing import List, Dict, Any
 from pydantic import BaseModel, Field
 
-from ..services.base_agent import BaseAgent
+# Custom exception for ranking failures
+class RankingAgentError(Exception):
+    """Raised when RankingAgent cannot obtain a valid Gemini ranking after retries."""
+    pass
 
-class RankedOpportunity(BaseModel):
-    ticker: str = Field(..., description="Stock ticker symbol")
-    investment_thesis: str = Field(..., description="Investment thesis narrative")
-    catalyst: str = Field(..., description="Catalyst driving the opportunity")
-    risks: str = Field(..., description="Associated risks")
-    confidence: int = Field(..., description="Confidence score")
-    ranking_explanation: str = Field(..., description="Explanation for this specific rank")
+from ..services.base_agent import BaseAgent
+from ..schemas.ranked_opportunity_response import RankedOpportunityResponse
+
 
 class RankedOpportunitiesResponse(BaseModel):
-    items: List[RankedOpportunity] = Field(..., description="List of ranked opportunities")
+    items: List[RankedOpportunityResponse] = Field(..., description="List of ranked opportunities with full payload")
 
 
 class RankingAgent(BaseAgent):
@@ -52,20 +51,23 @@ class RankingAgent(BaseAgent):
         else:
             json_part = raw_response
             
-        try:
-            response_obj = self.validate_response(json_part)
-            return [item.dict() for item in response_obj.items]
-        except Exception as e:
-            self.logger.error("RankingAgent failed to parse response: %s. Raw: %s", e, raw_response)
-            # Safe fallback: return in original order
-            return [
-                {
-                    "ticker": o["ticker"],
-                    "investment_thesis": o.get("opportunity", "N/A"),
-                    "catalyst": o.get("catalyst", "N/A"),
-                    "risks": o.get("risks", "N/A"),
-                    "confidence": o.get("confidence", 50),
-                    "ranking_explanation": "Fallback ranking due to agent failure."
-                }
-                for o in opportunities
-            ]
+        # Attempt Gemini up to 3 times
+        for attempt in range(3):
+            try:
+                response_obj = self.validate_response(json_part)
+                return [item.model_dump() for item in response_obj.items]
+            except Exception as e:
+                self.logger.error(
+                    "RankingAgent attempt %d failed to parse response: %s. Raw: %s",
+                    attempt + 1,
+                    e,
+                    raw_response,
+                )
+                # Re‑generate response for next attempt
+                raw_response = await self.generate_response(self.system_prompt, user_prompt)
+                json_start = raw_response.find("{")
+                json_part = raw_response[json_start:] if json_start != -1 else raw_response
+        # All attempts exhausted – propagate error
+        raise RankingAgentError(
+            "RankingAgent could not obtain a valid Gemini ranking after 3 attempts."
+        )

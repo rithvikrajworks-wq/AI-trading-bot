@@ -103,20 +103,29 @@ class AnalysisAgent(BaseAgent):
             prose = raw_response.strip()
             json_part = raw_response
 
-        # Persist the narrative analysis text
+        # Validate and parse the JSON block
+        response_obj = self.validate_response(json_part)
+
+        # Persist the narrative analysis text using schema-compatible arguments
         try:
             from ..database import SessionLocal
             from ..repositories.analysis_repo import save_analysis
             db = SessionLocal()
             try:
-                save_analysis(db, ticker, prose)
+                save_analysis(
+                    db=db,
+                    ticker=ticker,
+                    analysis_text=prose,
+                    structured_output=response_obj.model_dump_json(),
+                    signal=response_obj.signal,
+                    confidence=response_obj.confidence,
+                    risk_level=response_obj.risk_level,
+                )
             finally:
                 db.close()
         except Exception as exc:
             self.logger.error("Failed to persist analysis text for %s: %s", ticker, exc)
 
-        # Validate and parse the JSON block
-        response_obj = self.validate_response(json_part)
         duration = time.time() - start
         self.logger.info("AnalysisAgent completed for %s in %.2f s", ticker, duration)
         return self.post_process(response_obj)

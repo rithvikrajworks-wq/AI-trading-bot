@@ -32,3 +32,10 @@ build/
 
 # Environment
 .env
+*.env
+backend/.env
+frontend/.env
+.env.local
+.env.development
+.env.production
+memory.db

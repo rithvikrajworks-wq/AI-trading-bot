@@ -22,9 +22,10 @@ Use the following market indicators (JSON formatted) as the sole data source:
 - Include any relevant warnings such as low liquidity, high volatility, conflicting indicators, weak trend confirmation, unusual volume spikes, gap‑up/down risk, poor risk‑reward setups, and earnings/event risks.
 
 **Required JSON fields:**
-{
+{{
   "signal": "BUY|SELL|HOLD",
-  "confidence": <integer 0‑100>,
+  "confidence": <integer 0-100>,
+  "breakout_probability": <integer 0-100>,
   "risk_level": "Low|Medium|High|Unknown",
   "summary": "...",
   "company_overview": "...",
@@ -43,7 +44,7 @@ Use the following market indicators (JSON formatted) as the sole data source:
   "holding_period_rationale": "...",
   "key_levels": [],
   "warnings": []
-}
+}}
 
 **Content expectations** for each field:
 1. **company_overview** – what the company does and why the market cares.

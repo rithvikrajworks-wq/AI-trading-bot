@@ -68,7 +68,7 @@ class OpenAIProvider(AIProvider):
 class GeminiProvider(AIProvider):
     """Google Gemini provider using async httpx."""
 
-    def __init__(self, api_key: str | None = None, model: str = "gemini-1.5-flash"):
+    def __init__(self, api_key: str | None = None, model: str = "gemini-2.0-flash"):
         self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
         if not self.api_key:
             logger.warning("GOOGLE_API_KEY not set; GeminiProvider disabled.")
@@ -104,8 +104,16 @@ def get_ai_provider() -> AIProvider:
         from ..settings import settings
     except Exception:
         from settings import settings
-    provider_name = getattr(settings, "AI_PROVIDER", "openai").lower()
-    model = getattr(settings, "AI_MODEL", "gpt-3.5-turbo")
-    if provider_name == "gemini":
-        return GeminiProvider(api_key=settings.GEMINI_API_KEY, model=model)
-    return OpenAIProvider(api_key=settings.OPENAI_API_KEY, model=model)
+    # Read provider configuration directly from environment variables (.env)
+    provider_name = os.getenv("AI_PROVIDER", "gemini").lower()
+    # Require AI_MODEL to be set in .env; raise if missing
+    model = os.getenv("AI_MODEL")
+    if not model:
+        logger.error("AI_MODEL not set in environment; cannot initialize AI provider.")
+        raise RuntimeError("AI_MODEL environment variable is required.")
+    # Prefer GEMINI_API_KEY; fall back to GOOGLE_API_KEY for backward compatibility
+    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        logger.error("Gemini API key not found in environment variables.")
+        raise RuntimeError("GEMINI_API_KEY environment variable is required.")
+    return GeminiProvider(api_key=api_key, model=model)

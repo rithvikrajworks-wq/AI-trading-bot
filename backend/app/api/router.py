@@ -1,7 +1,8 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from app.api.endpoints import health, analysis, top_opportunities, chat, market_status, live_price, ai_analysis
+from app.auth.dependencies import get_current_user
 
-api_router = APIRouter()
+api_router = APIRouter(dependencies=[Depends(get_current_user)])
 
 # Register endpoint routers
 # Putting tags helps group them beautifully in the FastAPI auto-generated /docs interactive interface

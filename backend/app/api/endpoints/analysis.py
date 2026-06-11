@@ -85,17 +85,28 @@ async def analyze_stock(
         fallback = AnalysisResponse(
             signal="HOLD",
             confidence=50,
+            breakout_probability=50,
             risk_level="Unknown",
             summary="AI analysis unavailable – returning default hold recommendation.",
+            company_overview="Data not available.",
             technical_analysis="Service unavailable.",
+            chart_analysis="Data not available.",
+            trend_analysis="Data not available.",
+            momentum_analysis="Data not available.",
+            support_resistance_analysis="Data not available.",
+            bull_case="N/A",
+            bear_case="N/A",
+            investment_thesis="N/A",
+            position_assessment="N/A",
             entry_strategy="Wait for server to recover.",
             exit_strategy="N/A",
+            holding_period="N/A",
+            holding_period_rationale="N/A",
             key_levels=[],
             warnings=["AI service failure – using fallback response"],
-            holding_period="N/A",
             setup_quality="low",
             market_bias="neutral",
-            catalyst_summary="None"
+            catalyst_summary="None",
         )
         return fallback
     finally:

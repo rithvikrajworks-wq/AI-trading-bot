@@ -33,6 +33,9 @@ Use the supplied market indicators (JSON formatted) as the sole data source:
   "bull_thesis": "",
   "bear_thesis": "",
   "risk_analysis": "",
+  "bull_case_probability": 0,
+  "base_case_probability": 0,
+  "bear_case_probability": 0,
 
   "catalysts": [],
   "opportunity_thesis": "",
