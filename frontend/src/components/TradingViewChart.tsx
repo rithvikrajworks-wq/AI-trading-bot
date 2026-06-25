@@ -21,7 +21,7 @@ export default function TradingViewChart({ ticker, width = "100%", height = "400
     }
     // Construct a public TradingView widget URL. The format works for most exchanges.
     // Example: https://s.tradingview.com/embed-widget/advanced-chart/?locale=en#%7B"symbol":"NASDAQ%3ANVDA","interval":"D","timezone":"Etc%2FUTC","theme":"dark","style":"1","toolbar_bg":"#212121","enable_publishing":false,"allow_symbol_change":true,"hide_top_toolbar":false,"save_image":false,"study":[]%7D
-    const symbol = `NASDAQ%3A${encodeURIComponent(ticker)}`;
+    const symbol = ticker.trim().toUpperCase();
     const params = encodeURIComponent(
       JSON.stringify({
         symbol,

@@ -16,7 +16,9 @@ class Settings(BaseSettings):
 
     # ==== New scanner configuration ====
     # Maximum number of stocks to scan in a single request (pre‑cap to avoid overload)
-    MAX_SCAN_STOCKS: int = 100
+    # Maximum number of stocks to scan in a single request (pre‑cap to avoid overload)
+    # Token safety cap: do not increase without user confirmation.
+    MAX_SCAN_STOCKS: int = 5
     # Minimum confidence score required for a setup to be considered "high quality"
     MIN_CONFIDENCE_THRESHOLD: int = 60
     # Minimum acceptable risk/reward ratio for a setup to be considered viable
@@ -57,7 +59,7 @@ class Settings(BaseSettings):
     # ----- Caching configuration -----
     CACHE_ENABLED: bool = bool(os.getenv("CACHE_ENABLED", "true"))
     CACHE_TTL_SECONDS: int = int(os.getenv("CACHE_TTL_SECONDS", "600"))  # global default 10 min
-    SCANNER_CACHE_TTL: int = int(os.getenv("SCANNER_CACHE_TTL", "300"))   # 5 min for scanner results
+    ANALYSIS_CACHE_TTL: int = int(os.getenv("ANALYSIS_CACHE_TTL", "300"))  # seconds for analysis cache TTL
     BACKTEST_CACHE_TTL: int = int(os.getenv("BACKTEST_CACHE_TTL", "1800"))  # 30 min for backtest
     # -----------------------------------
     

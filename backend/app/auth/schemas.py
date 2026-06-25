@@ -2,21 +2,24 @@
 
 """Pydantic models for authentication endpoints."""
 
-from pydantic import BaseModel, EmailStr, Field
-from datetime import datetime
+from pydantic import BaseModel, Field
+
 
 class UserCreate(BaseModel):
-    email: EmailStr = Field(..., description="User email address")
+    email: str = Field(..., description="Username or email")
     password: str = Field(..., min_length=8, description="Plaintext password")
 
+
 class UserLogin(BaseModel):
-    email: EmailStr = Field(..., description="User email address")
+    email: str = Field(..., description="Username or email")
     password: str = Field(..., description="Plaintext password")
+
 
 class UserRead(BaseModel):
     id: str = Field(..., description="User UUID")
-    email: EmailStr = Field(..., description="User email")
+    email: str = Field(..., description="Username or email")
     created_at: float = Field(..., description="Unix timestamp of creation")
+
 
 class Token(BaseModel):
     access_token: str = Field(..., description="JWT access token")

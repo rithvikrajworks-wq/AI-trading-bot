@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useRef, KeyboardEvent } from 'react';
-import { ChatRequest, ChatResponse, AnalysisSummary, RiskSummary } from '@/utils/api'; // We'll extend api.ts types later
+import { ChatRequest, ChatResponse } from '@/utils/api'; // Types imported from api.ts
 import { fetchChat } from '@/utils/api';
 
 interface Message {

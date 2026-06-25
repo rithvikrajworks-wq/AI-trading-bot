@@ -1,5 +1,9 @@
 // Define types matching the FastAPI backend schemas
 
+import { normalizeTickerForBackend } from "./tickerHelpers";
+
+export type BackendMarket = "US" | "INDIA";
+
 export interface StockAnalysisResponse {
   ticker: string;
   price: number;
@@ -10,6 +14,30 @@ export interface StockAnalysisResponse {
   ema_trend: "bullish" | "bearish";
   pros: string[];
   cons: string[];
+
+  // AI-native fields
+  breakout_probability?: number;
+  risk_level?: string;
+  summary?: string;
+  company_overview?: string;
+  technical_analysis?: string;
+  chart_analysis?: string;
+  trend_analysis?: string;
+  momentum_analysis?: string;
+  support_resistance_analysis?: string;
+  bull_case?: string;
+  bear_case?: string;
+  investment_thesis?: string;
+  position_assessment?: string;
+  entry_strategy?: string;
+  exit_strategy?: string;
+  holding_period?: string;
+  holding_period_rationale?: string;
+  key_levels?: string[];
+  warnings?: string[];
+  setup_quality?: string;
+  market_bias?: string;
+  catalyst_summary?: string;
 }
 
 export interface BatchErrorDetail {
@@ -21,6 +49,87 @@ export interface BatchAnalysisResponse {
   results: StockAnalysisResponse[];
   errors: BatchErrorDetail[];
 }
+
+export interface RankedOpportunityResponse {
+  ticker: string;
+  display_ticker?: string;
+  market: "US" | "INDIA";
+  signal: "BUY" | "SELL" | "HOLD";
+  confidence: number;
+  expected_profit_pct: number;
+  entry_range_min: number;
+  entry_range_max: number;
+  exit_range_min: number;
+  exit_range_max: number;
+  stop_loss: number;
+  risk_reward_ratio: number;
+  breakout_probability: number;
+  holding_period: string;
+  setup_quality: "weak" | "average" | "strong";
+  pros: string[];
+  cons: string[];
+  reason: string;
+  rank_score?: number;
+}
+// Low Token Check types
+export interface LowTokenCheckResponse {
+  ticker: string;
+  worth_analysis: boolean;
+  reason: string;
+  estimated_setup_quality: "low" | "medium" | "high";
+  suggested_next_mode: "normal_analysis" | "trading_committee" | "risk_reward" | "skip";
+}
+
+export interface AnalysisModeRequest {
+  ticker: string;
+  mode: "low_token";
+}
+
+/**
+ * Run low‑token check for a ticker.
+ * POST /analyze-stock-mode
+ */
+export async function runLowTokenCheck(
+  ticker: string,
+  market: BackendMarket = "US"
+): Promise<LowTokenCheckResponse> {
+  const cleanTicker = normalizeTickerForBackend(ticker, market);
+
+  if (!cleanTicker) {
+    throw new Error("Ticker symbol cannot be empty");
+  }
+
+  const response = await fetch(`${API_BASE_URL}/analyze-stock-mode`, {
+    method: "POST",
+    headers: {
+      ...getAuthHeaders(),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      ticker: cleanTicker,
+      mode: "low_token",
+    }),
+  });
+
+  checkResponseStatus(response);
+
+  if (!response.ok) {
+    let errorMessage = `Low token check failed for '${cleanTicker}'`;
+
+    try {
+      const errBody = await response.json();
+      if (errBody?.detail) {
+        errorMessage = errBody.detail;
+      }
+    } catch {}
+
+    throw new Error(errorMessage);
+  }
+
+  return response.json();
+}
+
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
 // Helper to get the auth headers
@@ -69,7 +178,7 @@ export async function loginUser(username: string, password: string): Promise<str
       if (errBody && errBody.detail) {
         errorMessage = errBody.detail;
       }
-    } catch {}
+    } catch { }
     throw new Error(errorMessage);
   }
 
@@ -107,7 +216,7 @@ export async function fetchLivePrice(ticker: string): Promise<LivePriceResponse>
       if (errBody && errBody.detail) {
         errorMessage = errBody.detail;
       }
-    } catch {}
+    } catch { }
     throw new Error(errorMessage);
   }
   return response.json();
@@ -118,8 +227,11 @@ export async function fetchLivePrice(ticker: string): Promise<LivePriceResponse>
  * Fetch technical analysis for a single stock ticker.
  * GET /analyze-stock?ticker=NVDA
  */
-export async function fetchStockAnalysis(ticker: string): Promise<StockAnalysisResponse> {
-  const cleanTicker = ticker.trim().toUpperCase();
+export async function fetchStockAnalysis(
+  ticker: string,
+  market: BackendMarket = "US"
+): Promise<StockAnalysisResponse> {
+  const cleanTicker = normalizeTickerForBackend(ticker, market);
   if (!cleanTicker) {
     throw new Error("Ticker symbol cannot be empty");
   }
@@ -231,8 +343,19 @@ export async function fetchBatchAnalysis(tickers: string[]): Promise<BatchAnalys
 // Real‑time scanner & market status helpers
 
 /** Fetch top opportunities (real‑time scanner) */
-export async function fetchTopOpportunities(): Promise<StockAnalysisResponse[]> {
-  const response = await fetch(`${API_BASE_URL}/top-opportunities`, {
+export type Market = "US" | "INDIA" | "ALL";
+
+/**
+ * Fetch top opportunities (real‑time scanner) with optional filters.
+ * GET /top-opportunities?market=US&limit=10&force_refresh=true
+ */
+export async function getTopOpportunities(
+  market: Market = "ALL",
+  limit: number = 10,
+  forceRefresh: boolean = false
+): Promise<RankedOpportunityResponse[]> {
+  const url = `${API_BASE_URL}/top-opportunities?market=${market}&limit=${limit}&force_refresh=${forceRefresh}`;
+  const response = await fetch(url, {
     method: "GET",
     headers: getAuthHeaders(),
   });
@@ -248,7 +371,7 @@ export async function fetchTopOpportunities(): Promise<StockAnalysisResponse[]> 
     } catch {}
     throw new Error(errorMessage);
   }
-  const data: StockAnalysisResponse[] = await response.json();
+  const data: RankedOpportunityResponse[] = await response.json();
   return data;
 }
 
@@ -275,7 +398,7 @@ export async function fetchMarketStatus(): Promise<MarketStatus> {
       if (errBody && errBody.detail) {
         errorMessage = errBody.detail;
       }
-    } catch {}
+    } catch { }
     throw new Error(errorMessage);
   }
   const data: MarketStatus = await response.json();
@@ -311,7 +434,10 @@ export async function fetchChat(request: ChatRequest): Promise<ChatResponse> {
       ...headers,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(request),
+    body: JSON.stringify({
+      ...request,
+      ticker: request.ticker.trim().toUpperCase(),
+    }),
   });
   checkResponseStatus(response);
   if (!response.ok) {
@@ -319,9 +445,10 @@ export async function fetchChat(request: ChatRequest): Promise<ChatResponse> {
     try {
       const errBody = await response.json();
       if (errBody && errBody.detail) errorMessage = errBody.detail;
-    } catch {}
+    } catch { }
     throw new Error(errorMessage);
   }
   return response.json();
 }
+
 

@@ -1,31 +1,24 @@
 // src/hooks/useScannerRefresh.ts
 "use client";
 
-import { useEffect, useState } from "react";
-import { fetchTopOpportunities, StockAnalysisResponse } from "../utils/api";
+import { useState, useCallback } from "react";
+import { getTopOpportunities, Market, RankedOpportunityResponse } from "../utils/api";
 
 /**
- * Hook that fetches top opportunities on an interval.
- * Returns the data, loading flag, any error and the timestamp of the last successful fetch.
+ * Hook that provides a manual loader for top opportunities.
+ * No automatic fetching or polling.
  */
-export function useScannerRefresh(
-  refreshIntervalMs: number = 45000
-): {
-  data: StockAnalysisResponse[] | null;
-  loading: boolean;
-  error: string | null;
-  lastUpdated: number | null; // epoch ms of last successful fetch
-} {
-  const [data, setData] = useState<StockAnalysisResponse[] | null>(null);
+export function useScannerRefresh() {
+  const [data, setData] = useState<RankedOpportunityResponse[] | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async (market: Market = "ALL") => {
     setLoading(true);
     setError(null);
     try {
-      const result = await fetchTopOpportunities();
+      const result = await getTopOpportunities(market);
       setData(result);
       setLastUpdated(Date.now());
     } catch (e: any) {
@@ -33,14 +26,10 @@ export function useScannerRefresh(
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    load();
-    const interval = setInterval(load, refreshIntervalMs);
-    return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return { data, loading, error, lastUpdated };
+  return { data, loading, error, lastUpdated, load };
 }
+
+
+

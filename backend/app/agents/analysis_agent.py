@@ -89,24 +89,56 @@ class AnalysisAgent(BaseAgent):
         prompt_data = self._prepare_prompt_data(ticker, indicators)
         await self.load_prompt()
         user_prompt = self.build_prompt(**prompt_data)
+        # Debug: show the prompt that will be sent to Gemini (first 500 chars)
+        self.logger.debug("Prompt preview (first 500 chars): %s", user_prompt[:500])
         system_prompt = self.system_prompt
 
         # Call the LLM (with retry/back‑off handled by BaseAgent)
         raw_response = await self.generate_response(system_prompt, user_prompt)
+        # Debug: raw Gemini response preview (first 500 chars)
+        self.logger.debug("Raw Gemini response preview (first 500 chars): %s", raw_response[:500])
 
-        # Split into prose (text before the first "{") and JSON part
-        json_start = raw_response.find("{")
-        if json_start != -1:
-            prose = raw_response[:json_start].strip()
-            json_part = raw_response[json_start:]
-        else:
-            prose = raw_response.strip()
-            json_part = raw_response
+        # Attempt to validate the full response; BaseAgent will extract JSON safely
+        try:
+            response_obj = self.validate_response(raw_response)
+            # Debug: extracted JSON keys after validation
+            self.logger.debug("Extracted JSON keys: %s", list(response_obj.dict().keys()))
+            # Separate prose for persistence: everything before the first JSON object
+            json_start = raw_response.find('{')
+            prose = raw_response[:json_start].strip() if json_start != -1 else raw_response.strip()
+        except Exception as exc:
+            # If validation fails, log and return a fallback response
+            self.logger.error("AI response validation failed: %s", exc)
+            response_obj = self._fallback_response()
+            prose = raw_response  # store whatever was received as prose
+            # Debug: indicate fallback is used
+            self.logger.debug("Using fallback AnalysisResponse due to validation failure.")
 
-        # Validate and parse the JSON block
-        response_obj = self.validate_response(json_part)
+        # ---- Placeholder quality guard ----
+        placeholder_fields = self._detect_placeholders(response_obj)
+        if placeholder_fields:
+            self.logger.warning("Detected placeholder fields: %s", placeholder_fields)
+            # Retry once with a corrective instruction
+            corrective_prompt = user_prompt + "\n\nPlease rewrite the JSON with real analysis based on the indicators. Do NOT use any placeholder text such as 'No summary available.'"
+            self.logger.info("Retrying Gemini with corrective prompt for %s", ticker)
+            raw_response_retry = await self.generate_response(system_prompt, corrective_prompt)
+            self.logger.debug("Raw Gemini retry response preview (first 500 chars): %s", raw_response_retry[:500])
+            try:
+                response_obj = self.validate_response(raw_response_retry)
+                json_start = raw_response_retry.find('{')
+                prose = raw_response_retry[:json_start].strip() if json_start != -1 else raw_response_retry.strip()
+                # Re‑check placeholders after retry
+                placeholder_fields = self._detect_placeholders(response_obj)
+                if placeholder_fields:
+                    self.logger.error("Retry still returned placeholders: %s", placeholder_fields)
+                    response_obj = self._fallback_response()
+                else:
+                    self.logger.info("Retry succeeded with real analysis for %s", ticker)
+            except Exception as exc:
+                self.logger.error("Retry validation failed: %s", exc)
+                response_obj = self._fallback_response()
 
-        # Persist the narrative analysis text using schema-compatible arguments
+        # Persist the narrative analysis text using schema‑compatible arguments
         try:
             from ..database import SessionLocal
             from ..repositories.analysis_repo import save_analysis
@@ -129,6 +161,34 @@ class AnalysisAgent(BaseAgent):
         duration = time.time() - start
         self.logger.info("AnalysisAgent completed for %s in %.2f s", ticker, duration)
         return self.post_process(response_obj)
+
+    # ---- Helper to detect placeholder strings ----
+    def _detect_placeholders(self, response_obj: "AnalysisResponse") -> list:
+        """Return a list of field names that contain known placeholder text.
+
+        If the list is empty, the response is considered real.
+        """
+        placeholder_texts = {
+            "summary": "No summary available.",
+            "company_overview": "No company overview available.",
+            "technical_analysis": "No technical analysis available.",
+            "chart_analysis": "No chart analysis available.",
+            "trend_analysis": "No trend analysis available.",
+            "momentum_analysis": "No momentum analysis available.",
+            "support_resistance_analysis": "No support/resistance analysis available.",
+            "bull_case": "No bull case available.",
+            "bear_case": "No bear case available.",
+            "investment_thesis": "No investment thesis available.",
+            "position_assessment": "No position assessment available.",
+            "entry_strategy": "No entry strategy available.",
+            "exit_strategy": "No exit strategy available.",
+            "holding_period_rationale": "No holding period rationale available.",
+        }
+        detected = []
+        for field, placeholder in placeholder_texts.items():
+            if getattr(response_obj, field, None) == placeholder:
+                detected.append(field)
+        return detected
 
     # ---------------------------------------------------------------------
     # Fallback response – used when the LLM pipeline fails

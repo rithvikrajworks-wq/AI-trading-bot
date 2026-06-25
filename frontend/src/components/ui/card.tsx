@@ -7,7 +7,7 @@ interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
 export function Card({ className = "", children, ...props }: CardProps) {
   return (
     <div
-      className={`bg-slate-900/40 backdrop-blur-md border border-slate-800/60 rounded-xl shadow-2xl overflow-hidden transition-all duration-300 ${className}`}
+      className={`glass rounded-xl overflow-hidden ${className}`}
       {...props}
     >
       {children}
@@ -17,7 +17,7 @@ export function Card({ className = "", children, ...props }: CardProps) {
 
 export function CardHeader({ className = "", children, ...props }: CardProps) {
   return (
-    <div className={`p-5 border-b border-slate-800/40 ${className}`} {...props}>
+    <div className={`p-5 border-b border-white/5 ${className}`} {...props}>
       {children}
     </div>
   );
@@ -49,7 +49,7 @@ export function CardContent({ className = "", children, ...props }: CardProps) {
 
 export function CardFooter({ className = "", children, ...props }: CardProps) {
   return (
-    <div className={`p-4 bg-slate-950/40 border-t border-slate-800/40 px-5 flex items-center ${className}`} {...props}>
+    <div className={`p-4 bg-white/2 border-t border-white/5 px-5 flex items-center ${className}`} {...props}>
       {children}
     </div>
   );

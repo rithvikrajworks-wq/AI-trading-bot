@@ -18,11 +18,11 @@ export function Button({
     "inline-flex items-center justify-center font-medium rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-slate-700 disabled:opacity-50 disabled:pointer-events-none active:scale-[0.98]";
 
   const variants = {
-    default: "bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-900/25 border border-blue-500/20",
-    outline: "border border-slate-700 hover:border-slate-600 bg-slate-900/20 hover:bg-slate-800/40 text-slate-200",
-    ghost: "text-slate-400 hover:text-slate-100 hover:bg-slate-800/40",
-    danger: "bg-red-600 hover:bg-red-500 text-white shadow-md shadow-red-900/25",
-    success: "bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-900/25",
+    default: "bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-950/20 border border-emerald-500/10",
+    outline: "border border-slate-800 hover:border-slate-700 bg-slate-950/40 hover:bg-slate-900/60 text-slate-200",
+    ghost: "text-slate-400 hover:text-slate-100 hover:bg-slate-800/20",
+    danger: "bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-950/20",
+    success: "bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-950/20",
   };
 
   const sizes = {

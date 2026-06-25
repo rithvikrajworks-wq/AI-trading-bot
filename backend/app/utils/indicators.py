@@ -1,6 +1,14 @@
 import pandas as pd
 import pandas_ta as ta
-from typing import Dict, Any
+from typing import Dict, Any, Union
+
+
+def _ta_single_series(result: Union[pd.Series, pd.DataFrame]) -> pd.Series:
+    if isinstance(result, pd.DataFrame):
+        return result.iloc[:, 0]
+    if isinstance(result, pd.Series):
+        return result
+    raise TypeError(f"Unexpected pandas_ta result type: {type(result)}")
 
 
 def compute_indicators(df: pd.DataFrame) -> Dict[str, Any]:
@@ -8,9 +16,9 @@ def compute_indicators(df: pd.DataFrame) -> Dict[str, Any]:
     Returns a dictionary with the same keys as the previous in‑line implementation.
     """
     # Ensure TA columns exist
-    df['RSI'] = df.ta.rsi(length=14)
-    df['EMA_20'] = df.ta.ema(length=20)
-    df['EMA_50'] = df.ta.ema(length=50)
+    df['RSI'] = _ta_single_series(df.ta.rsi(length=14))
+    df['EMA_20'] = _ta_single_series(df.ta.ema(length=20))
+    df['EMA_50'] = _ta_single_series(df.ta.ema(length=50))
     macd_df = df.ta.macd(fast=12, slow=26, signal=9)
 
     latest_row = df.iloc[-1]

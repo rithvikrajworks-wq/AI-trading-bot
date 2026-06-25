@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import pathlib
+import re
 from typing import Any, Dict, Optional, Type, List
 
 import httpx
@@ -19,7 +20,7 @@ class AIProviderError(Exception):
     """Raised when the underlying AI provider fails unexpectedly."""
 
 class InvalidAIResponseError(Exception):
-    """Raised when the AI provider returns a response that cannot be parsed as JSON."""
+    """Raised when the AI provider returns a response that cannot be parsed as JSON or fails schema validation."""
 
 class PromptLoadError(Exception):
     """Raised when a prompt file cannot be read or is missing."""
@@ -155,19 +156,46 @@ class BaseAgent(abc.ABC):
     # Response handling helpers
     # ---------------------------------------------------------------------
     def _sanitize_json(self, raw: str) -> str:
-        """Attempt a lightweight cleanup of malformed JSON strings.
+        """Clean up malformed JSON strings.
 
-        * Replace single quotes with double quotes.
-        * Remove stray back‑ticks or markdown code fences.
-        * Trim any leading/trailing non‑JSON characters.
+        Handles markdown fences, stray backticks, and single‑quote usage.
         """
         cleaned = raw.strip()
+        # Remove leading markdown fences like ```json or ```
         if cleaned.startswith('```'):
-            cleaned = cleaned.lstrip('`').strip()
+            cleaned = cleaned.lstrip('`')
+            cleaned = cleaned.lstrip().lstrip('json').strip()
+        # Remove trailing markdown fence
         if cleaned.endswith('```'):
             cleaned = cleaned.rstrip('`').strip()
+        # Replace single quotes with double quotes for JSON compatibility
         cleaned = cleaned.replace("'", '"')
         return cleaned
+
+    def _extract_json_block(self, raw: str) -> str:
+        """Extract the JSON block from raw LLM output.
+
+        Supports fenced `````json`` blocks and plain JSON possibly surrounded by text.
+        Returns the most balanced JSON object found.
+        """
+        # Try to find a fenced JSON block first
+        fenced_match = re.search(r'```json\s*(\{.*?\})\s*```', raw, re.DOTALL)
+        if fenced_match:
+            return fenced_match.group(1)
+        # Fallback: locate the first '{' and extract the balanced JSON object
+        start = raw.find('{')
+        if start == -1:
+            return raw  # No JSON found; caller will handle error
+        balance = 0
+        for i in range(start, len(raw)):
+            if raw[i] == '{':
+                balance += 1
+            elif raw[i] == '}':
+                balance -= 1
+                if balance == 0:
+                    return raw[start:i+1]
+        # If we exit loop without balance zero, return substring from start
+        return raw[start:]
 
     def validate_response(self, raw_response: str) -> BaseModel:
         """Parse the raw LLM response, coerce to JSON, and validate against the schema.
@@ -175,20 +203,32 @@ class BaseAgent(abc.ABC):
         If parsing fails, a single retry is attempted after sanitising the string.
         ``InvalidAIResponseError`` is raised when validation cannot succeed.
         """
+        # Extract candidate JSON block first
+        json_candidate = self._extract_json_block(raw_response)
+        # Log a preview of the raw response for debugging (max 500 chars)
+        self.logger.debug("Raw Gemini response preview (first 500 chars): %s", raw_response[:500])
         try:
-            data = json.loads(raw_response)
+            data = json.loads(json_candidate)
         except json.JSONDecodeError:
             self.logger.debug("JSON decode failed – attempting sanitisation")
-            sanitized = self._sanitize_json(raw_response)
+            sanitized = self._sanitize_json(json_candidate)
             try:
                 data = json.loads(sanitized)
             except json.JSONDecodeError as exc:
+                self.logger.error("Failed to parse AI response. Raw output: %s", raw_response)
                 raise InvalidAIResponseError(
                     f"Unable to parse AI response as JSON after sanitisation: {exc}"
                 ) from exc
+        # Log extracted keys for visibility
+        self.logger.debug("Extracted JSON keys: %s", list(data.keys()))
         try:
             return self.response_schema.parse_obj(data)
         except ValidationError as exc:
+            # Identify missing required keys
+            missing = [e['loc'][0] for e in exc.errors() if e['type'] == 'value_error.missing']
+            if missing:
+                self.logger.error("Missing required keys in AI response: %s", missing)
+            self.logger.error("Response validation failed: %s. Raw output: %s", exc, raw_response)
             raise InvalidAIResponseError(f"Response validation failed: {exc}") from exc
 
     # ---------------------------------------------------------------------
@@ -210,11 +250,9 @@ class BaseAgent(abc.ABC):
         try:
             return self.validate_response(raw)
         except InvalidAIResponseError as exc:
-            self.logger.error("Invalid AI response – returning safe fallback: %s", exc)
-            try:
-                return self.response_schema.parse_obj({})
-            except Exception:
-                raise
+            # Propagate the error so the calling agent can decide on fallback handling
+            self.logger.error("Invalid AI response – propagating error: %s", exc)
+            raise
 
     # ---------------------------------------------------------------------
     # Extension points for subclasses

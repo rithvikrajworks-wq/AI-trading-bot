@@ -10,6 +10,8 @@ from app.schemas.analysis import (
     BatchAnalysisResponse,
     BatchErrorDetail,
 )
+from app.schemas.low_token_check import LowTokenCheckRequest, LowTokenCheckResponse
+from app.schemas.analysis import BatchAnalysisRequest, BatchAnalysisResponse, BatchErrorDetail
 
 # Services and agents
 from app.services.stock_service import StockService
@@ -131,6 +133,28 @@ async def analyze_stock(
         logger.error("Failed to cache analysis for %s: %s", ticker_clean, e)
 
     return analysis
+
+@router.post(
+    "/analyze-stock-mode",
+    response_model=LowTokenCheckResponse,
+    summary="Low Token Check",
+    description="Quick cheap check to decide if a full analysis is worth running.",
+    tags=["Stock Analysis"],
+)
+async def low_token_check(request: LowTokenCheckRequest):
+    """Endpoint for low‑token mode.
+
+    Returns a deterministic placeholder response.
+    """
+    if request.mode != "low_token":
+        raise HTTPException(status_code=400, detail="Unsupported mode")
+    return LowTokenCheckResponse(
+        ticker=request.ticker.upper(),
+        worth_analysis=True,
+        reason="Low token check endpoint is connected. AI scoring will be added next.",
+        estimated_setup_quality="medium",
+        suggested_next_mode="normal_analysis",
+    )
 
 # Batch endpoint (still deterministic for now)
 @router.post(

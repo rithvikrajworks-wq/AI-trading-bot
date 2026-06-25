@@ -32,13 +32,37 @@ build/
 
 # Environment
 .env
+.env.local
 *.env
+*.db
+*.sqlite
+*.sqlite3
 backend/.env
 frontend/.env
-.env.local
 .env.development
 .env.production
 memory.db
+
+# Python cache/test output
+**pycache**/
+*.pyc
+.pytest_cache/
+backend/.pytest_cache/
+
+# Node/generated output
+node_modules/
+.next/
+frontend/.next/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+
+# Logs
+logs/
+*.log
 
 # Reports and Scratch
 backend/docs/*_AUDIT.md
@@ -47,4 +71,3 @@ backend/docs/*_TRACE.md
 backend/docs/*_DUMP.md
 backend/docs/RUNTIME_PIPELINE_PROOF.md
 scratch/
-

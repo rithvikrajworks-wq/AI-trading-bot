@@ -3,13 +3,11 @@
 """FastAPI application entry point.
 Includes CORS, logging, auth router, and startup DB migrations.
 """
+
 from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
-
-
-
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -56,6 +54,16 @@ app.include_router(auth_router)
 # Startup event – create tables if they don't exist
 @app.on_event("startup")
 async def create_tables() -> None:
+    """Create all required database tables at application startup.
+    This includes SQLAlchemy ORM tables and raw SQLite tables used by the app.
+    Also seeds an admin user if not present.
+    """
+    # SQLAlchemy tables
+    from .database import Base, engine
+    from .models.analysis_record import AnalysisRecord
+    Base.metadata.create_all(bind=engine)
+
+    # SQLite tables
     async with aiosqlite.connect(settings.MEMORY_DB_PATH) as db:
         await db.executescript(
             """
@@ -107,13 +115,11 @@ async def create_tables() -> None:
             );
             """
         )
-        await db.commit()
-        
-        # Seed the Rithvik user account if it doesn't exist
+        # Seed the Rithvik(admin) user account if it doesn't exist
         from app.auth.password_utils import hash_password
         import uuid
         import time
-        email = "Rithvik"
+        email = "Rithvik(admin)"
         cursor = await db.execute("SELECT id FROM users WHERE email = ?", (email,))
         row = await cursor.fetchone()
         await cursor.close()
@@ -126,7 +132,8 @@ async def create_tables() -> None:
                 (user_id, email, hashed_password, created_at)
             )
             await db.commit()
-            logger.info("Successfully seeded user: Rithvik")
+            logger.info("Successfully seeded user: Rithvik(admin)")
+        await db.commit()
     logger.info("Database tables ensured at startup")
 
 # Root redirect to /docs
